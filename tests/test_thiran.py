@@ -10,7 +10,14 @@ import pytest
 
 from demo.smoke.flow import MAX_LOOPS, build_flow
 from demo.smoke.store_ext import LearnerStore
-from demo.smoke.stub import AlwaysBlocksStub, CleanStub, Session2Stub, ThiranStub
+from demo.smoke.stub import (
+    AlwaysBlocksStub,
+    BinarySearchStub,
+    CleanStub,
+    Session2Stub,
+    ThiranStub,
+    TwoPointersStub,
+)
 from slice import runner
 from slice.config import settings as load_settings
 from slice.records import RunState
@@ -224,5 +231,143 @@ def test_session2_cross_session_memory_and_progression(tmp_path):
     concepts = {m.concept: m.resolved for m in p2.misconceptions}
     assert concepts.get("base_case") is True, "Session 1 resolved misconception must persist"
     assert concepts.get("return_values") is True, "Session 2 resolved misconception must be added"
+
+
+# ------------------------------------------------------------- Multi-DSA & Confidence Engine Tests
+
+def test_two_pointers_learning_loop(tmp_path):
+    """Proves that Thiran generalizes to Two Pointers with diagnosis, concept teaching, toy example, practice, and gating."""
+    store, run_id, final = _run(tmp_path, call=TwoPointersStub(), topic="two_pointers")
+    assert final is RunState.COMPLETE
+
+    # Verify 1 backward loop occurred
+    loops = store.history(run_id, "backward_loop")
+    assert len(loops) == 1
+
+    # Verify intervention structure contains all required pedagogical fields
+    interventions = [v.payload for v in store.history(run_id, "intervention")]
+    assert len(interventions) == 2
+    assert "nested loops" in interventions[0]["mistake_diagnosis"].lower() or "o(n^2)" in interventions[0]["mistake_diagnosis"].lower()
+    assert "opposite" in interventions[0]["core_dsa_concept"].lower() or "left" in interventions[0]["core_dsa_concept"].lower()
+    assert interventions[0]["simple_example"]
+    assert interventions[0]["problem_statement"]
+
+    # Verify persistence in SQLite
+    lstore = LearnerStore(store)
+    p = lstore.get_learner("surya")
+    assert p is not None
+    assert p.knowledge_state.get("two_pointers") == 4
+    assert any(m.concept == "pointer_movement" and m.resolved for m in p.misconceptions)
+
+
+def test_binary_search_learning_loop(tmp_path):
+    """Proves that Thiran generalizes to Binary Search."""
+    store, run_id, final = _run(tmp_path, call=BinarySearchStub(), topic="binary_search")
+    assert final is RunState.COMPLETE
+
+    # Verify binary search intervention fields
+    interventions = [v.payload for v in store.history(run_id, "intervention")]
+    assert len(interventions) == 1
+    assert "low = mid" in interventions[0]["mistake_diagnosis"]
+    assert "strictly exclude" in interventions[0]["core_dsa_concept"].lower() or "mid + 1" in interventions[0]["core_dsa_concept"].lower()
+
+    # Verify profile
+    lstore = LearnerStore(store)
+    p = lstore.get_learner("surya")
+    assert p.knowledge_state.get("binary_search") == 4
+    assert any(m.concept == "boundary_update" and m.resolved for m in p.misconceptions)
+
+
+def test_two_consecutive_correct_sets_confident(tmp_path):
+    """Proves: 2 consecutive correct answers on different questions -> confident."""
+    db_path = str(tmp_path / "t.db")
+
+    # Session 1: Pass on recursion
+    store1 = Store(db_path)
+    run_id1 = store1.create_run("thiran")
+    store1.append(run_id1, "input", {"learner_id": "anita", "name": "Anita", "topic": "recursion", "session_number": 1}, produced_by="system")
+    store1.append(run_id1, "phase", {"name": "ASSESS"}, produced_by="system")
+    final1 = runner.advance(store1, run_id1, build_flow(CleanStub()), load_settings())
+    assert final1 is RunState.COMPLETE
+
+    lstore1 = LearnerStore(store1)
+    p1 = lstore1.get_learner("anita")
+    assert p1.consecutive_correct.get("recursion") == 1
+    assert p1.confidence_state.get("recursion") == "learning"
+
+    # Session 2: Pass on recursion (question 2)
+    store2 = Store(db_path)
+    run_id2 = store2.create_run("thiran")
+    store2.append(run_id2, "input", {"learner_id": "anita", "name": "Anita", "topic": "recursion", "session_number": 2}, produced_by="system")
+    store2.append(run_id2, "phase", {"name": "ASSESS"}, produced_by="system")
+    final2 = runner.advance(store2, run_id2, build_flow(Session2Stub()), load_settings())
+    assert final2 is RunState.COMPLETE
+
+    lstore2 = LearnerStore(store2)
+    p2 = lstore2.get_learner("anita")
+    assert p2.consecutive_correct.get("recursion") == 2
+    assert p2.confidence_state.get("recursion") == "confident"
+
+
+def test_subsequent_mistake_reduces_confidence_to_revisiting(tmp_path):
+    """Proves: subsequent mistake on a confident topic reduces confidence to 'revisiting' and resets streak to 0."""
+    db_path = str(tmp_path / "t.db")
+
+    # Seed profile directly with confident status and streak=2
+    store = Store(db_path)
+    lstore = LearnerStore(store)
+    p = lstore.get_or_create_learner("anita", "Anita")
+    p.confidence_state["recursion"] = "confident"
+    p.consecutive_correct["recursion"] = 2
+    lstore.save_learner(p)
+
+    # Session 3: An answer is blocked (mistake)
+    run_id = store.create_run("thiran")
+    store.append(run_id, "input", {"learner_id": "anita", "name": "Anita", "topic": "recursion", "session_number": 3}, produced_by="system")
+    store.append(run_id, "phase", {"name": "ASSESS"}, produced_by="system")
+
+    # Run flow with ThiranStub (which encounters 1 block then recovers)
+    final = runner.advance(store, run_id, build_flow(ThiranStub()), load_settings())
+
+    # Check that confidence update event was recorded during the mistake
+    conf_events = store.history(run_id, "confidence_update")
+    assert len(conf_events) >= 1
+    assert conf_events[0].payload["confidence"] == "revisiting"
+    assert conf_events[0].payload["consecutive_correct"] == 0
+    assert conf_events[0].payload["event"] == "mistake_reset"
+
+    # After recovering and passing the second challenge, streak becomes 1
+    p_after = lstore.get_learner("anita")
+    assert p_after.consecutive_correct["recursion"] == 1
+
+
+def test_repeated_misconception_escalates_teaching_strategy(tmp_path):
+    """Proves: repeated misconception recognizes failed past interventions and changes strategy."""
+    db_path = str(tmp_path / "t.db")
+
+    # Seed profile with past failed intervention
+    store = Store(db_path)
+    lstore = LearnerStore(store)
+    p = lstore.get_or_create_learner("anita", "Anita")
+    from demo.smoke.schema import Misconception
+    p.misconceptions.append(
+        Misconception(
+            concept="base_case",
+            description="Infinite recursion",
+            evidence="countdown(n - 1)",
+            past_interventions=["conceptual_analogy"],
+            resolved=False,
+        )
+    )
+    lstore.save_learner(p)
+
+    # In a new run, Attempt 1 must skip conceptual_analogy and escalate to execution_trace_guard
+    evidence = lstore.get_relevant_evidence("anita", "recursion")
+    assert "conceptual_analogy" in evidence["past_interventions"]
+
+    from demo.smoke.flow import get_escalated_strategy
+    next_strat = get_escalated_strategy(attempt=1, past_strategies=evidence["past_interventions"])
+    assert next_strat == "execution_trace_guard", f"Expected execution_trace_guard, got {next_strat}"
+
 
 

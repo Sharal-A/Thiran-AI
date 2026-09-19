@@ -34,7 +34,12 @@ from .schema import (
     ReassessVerdict,
 )
 from .store_ext import LearnerStore
-from .stub import DEFAULT_ANSWERS, DEFAULT_ANSWERS_S2
+from .stub import (
+    DEFAULT_ANSWERS,
+    DEFAULT_ANSWERS_BS,
+    DEFAULT_ANSWERS_S2,
+    DEFAULT_ANSWERS_TP,
+)
 
 # --------------------------------------------------------------- domain rules
 
@@ -48,10 +53,14 @@ STRATEGIES = [
 ]
 
 
-def get_escalated_strategy(attempt: int) -> str:
-    """Deterministic strategy escalator: shifts instructional tactic on recurring failure."""
-    idx = min(max(0, attempt - 1), len(STRATEGIES) - 1)
-    return STRATEGIES[idx]
+def get_escalated_strategy(attempt: int, past_strategies: list[str] | None = None) -> str:
+    """Deterministic strategy escalator: shifts instructional tactic on recurring failure or past failed strategies."""
+    past = set(past_strategies or [])
+    available = [s for s in STRATEGIES if s not in past]
+    if available:
+        idx = min(max(0, attempt - 1), len(available) - 1)
+        return available[idx]
+    return STRATEGIES[(attempt - 1) % len(STRATEGIES)]
 
 
 def has_new_evidence(old_code: str | None, new_code: str | None) -> bool:
@@ -76,6 +85,9 @@ def _prompt(name: str) -> str:
 def build_assess_messages(inp: dict, evidence: dict[str, Any]) -> list[dict]:
     topic = inp.get("topic", "recursion")
     user_lines = [f"Topic: {topic}"]
+    familiarity = inp.get("familiarity")
+    if familiarity:
+        user_lines.append(f"Self-Reported Familiarity: {familiarity}")
     score = evidence.get("score")
     if score is not None:
         user_lines.append(f"Prior Topic Score: {score}/4")
@@ -117,17 +129,22 @@ def build_intervention_messages(
     strategy: str,
     evidence: dict[str, Any],
 ) -> list[dict]:
-    target = analysis.misconceptions[0].concept if analysis.misconceptions else inp.get("topic", "recursion")
-    desc = analysis.misconceptions[0].description if analysis.misconceptions else "General recursion gap"
+    topic = inp.get("topic", "recursion")
+    target = analysis.misconceptions[0].concept if analysis.misconceptions else topic
+    desc = analysis.misconceptions[0].description if analysis.misconceptions else f"General {topic} gap"
+    past_int = evidence.get("past_interventions", [])
+    user_lines = [
+        f"Topic: {topic}",
+        f"Target Misconception: {target}",
+        f"Diagnosed Flaw: {desc}",
+        f"Mental Model: {analysis.mental_model_summary}",
+        f"Required Strategy: {strategy}",
+    ]
+    if past_int:
+        user_lines.append(f"Previously Failed Strategies: {', '.join(past_int)}")
     return [
         {"role": "system", "content": _prompt("intervention")},
-        {"role": "user", "content": (
-            f"Topic: {inp.get('topic', 'recursion')}\n"
-            f"Target Misconception: {target}\n"
-            f"Diagnosed Flaw: {desc}\n"
-            f"Mental Model: {analysis.mental_model_summary}\n"
-            f"Required Strategy: {strategy}"
-        )},
+        {"role": "user", "content": "\n".join(user_lines)},
     ]
 
 
@@ -209,7 +226,8 @@ def build_flow(call=complete):
 
         if phase == "INTERVENE":
             loop_count = int(ctx.store.counter(ctx.run_id, "backward_loops"))
-            strategy = get_escalated_strategy(attempt=loop_count + 1)
+            past_int = evidence.get("past_interventions", [])
+            strategy = get_escalated_strategy(attempt=loop_count + 1, past_strategies=past_int)
             analysis_dict = ctx.latest("cognitive_analysis")
             analysis = CognitiveAnalysis.model_validate(analysis_dict)
 
@@ -241,14 +259,38 @@ def build_flow(call=complete):
             if phase == "AWAIT_DIAGNOSTIC":
                 diag = ctx.latest("diagnostic_challenge") or {}
                 prompt_text = diag.get("challenge_question", "Solve the challenge:")
+                fam = str(inp.get("familiarity", "beginner")).lower()
+                diff = "EASY" if fam == "beginner" else ("MEDIUM" if fam == "some_experience" else "HARD")
+                print(f"\n\033[1m\033[36m=== QUICK CONCEPT CHECK ({diff}) ===\033[0m")
+                print(f"{prompt_text}")
             else:
+                cog = ctx.latest("cognitive_analysis") or {}
                 interv = ctx.latest("intervention") or {}
-                prompt_text = interv.get("problem_statement", "Debug and fix the issue:")
-                if interv.get("buggy_code_or_prompt"):
-                    prompt_text += f"\nCode snippet:\n{interv.get('buggy_code_or_prompt')}"
 
-            print(f"\n\033[1m[Thiran Prompt]\033[0m {prompt_text}")
-            print("\033[2mEnter code (submit with an empty line or EOF):\033[0m")
+                print(f"\n\033[1m\033[35m=== UNDERSTAND THE STUDENT ===\033[0m")
+                if cog.get("mental_model_summary"):
+                    print(f"  \033[1mMental Model:\033[0m {cog.get('mental_model_summary')}")
+                misconceptions = cog.get("misconceptions", [])
+                if misconceptions:
+                    for m in misconceptions:
+                        desc = m.get('description', '')
+                        concept = m.get('concept', '')
+                        print(f"  \033[31m• Diagnosed Gap:\033[0m {desc} ({concept})")
+
+                print(f"\n\033[1m\033[32m=== PERSONALIZED LEARNING PATH ===\033[0m")
+                if interv.get("core_dsa_concept"):
+                    print(f"  \033[1mCore Concept:\033[0m {interv.get('core_dsa_concept')}")
+                if interv.get("simple_example"):
+                    print(f"  \033[1mExecution Trace:\033[0m {interv.get('simple_example')}")
+                strat = interv.get("teaching_strategy_used", "guided_scaffold")
+                print(f"  \033[1mTeaching Strategy:\033[0m {strat}")
+
+                prompt_text = interv.get("problem_statement", "Debug and fix the issue:")
+                print(f"\n\033[1m\033[33m[Targeted Practice]\033[0m {prompt_text}")
+                if interv.get("buggy_code_or_prompt"):
+                    print(f"\033[2mCode snippet:\033[0m\n{interv.get('buggy_code_or_prompt')}")
+
+            print("\n\033[2mEnter code or explanation (submit with an empty line or EOF):\033[0m")
             lines = []
             try:
                 while True:
@@ -264,7 +306,15 @@ def build_flow(call=complete):
             ans = answers[ans_idx]
         # 3. Fallback to appropriate canned answers
         else:
-            ans_pool = DEFAULT_ANSWERS_S2 if session_num == 2 else DEFAULT_ANSWERS
+            topic = inp.get("topic", "recursion")
+            if topic == "two_pointers":
+                ans_pool = DEFAULT_ANSWERS_TP
+            elif topic == "binary_search":
+                ans_pool = DEFAULT_ANSWERS_BS
+            elif session_num == 2:
+                ans_pool = DEFAULT_ANSWERS_S2
+            else:
+                ans_pool = DEFAULT_ANSWERS
             default_idx = min(ans_idx, len(ans_pool) - 1)
             ans = ans_pool[default_idx]
 
@@ -304,12 +354,23 @@ def build_flow(call=complete):
         )
         ctx.append("verdict", verdict.model_dump(), produced_by="agent:judge")
 
+        inp = ctx.latest("input") or {}
+        if inp.get("interactive") and sys.stdin.isatty():
+            if verdict.status == "PASS":
+                print(f"\n\033[1m\033[32m=== VERDICT: PASS (Score: {verdict.score}/4) ===\033[0m")
+                print(f"  {verdict.feedback}\n")
+            else:
+                print(f"\n\033[1m\033[33m=== VERDICT: BLOCK (Score: {verdict.score}/4) ===\033[0m")
+                print(f"  {verdict.feedback}\n")
+
         if verdict.status == "PASS":
             # State Update (pure deterministic code)
             _handle_update(ctx, verdict)
             return RunState.COMPLETE
 
         # Blocked: Evaluate backward loop
+        _handle_block(ctx, verdict)
+
         loop_count = int(ctx.store.counter(ctx.run_id, "backward_loops"))
         if loop_count >= MAX_LOOPS:
             ctx.append(
@@ -325,8 +386,13 @@ def build_flow(call=complete):
 
         # Execute backward loop & strategy escalation
         ctx.store.bump(ctx.run_id, "backward_loops")
+        inp = ctx.latest("input") or {}
+        learner_id = inp.get("learner_id", "default_learner")
+        topic = inp.get("topic", "recursion")
+        lstore = LearnerStore(ctx.store)
+        evidence = lstore.get_relevant_evidence(learner_id, topic)
         next_attempt = loop_count + 2
-        strategy = get_escalated_strategy(next_attempt)
+        strategy = get_escalated_strategy(next_attempt, evidence.get("past_interventions", []))
 
         ctx.append(
             "backward_loop",
@@ -346,6 +412,34 @@ def build_flow(call=complete):
 
         return RunState.DRAFTING
 
+    def _handle_block(ctx, verdict: ReassessVerdict) -> None:
+        """Deterministic update when an answer is blocked: resets streak, reduces confidence if previously confident."""
+        inp = ctx.latest("input") or {}
+        learner_id = inp.get("learner_id", "default_learner")
+        name = inp.get("name", learner_id.capitalize())
+        topic = inp.get("topic", "recursion")
+
+        lstore = LearnerStore(ctx.store)
+        profile = lstore.get_or_create_learner(learner_id, name)
+        profile.consecutive_correct[topic] = 0
+        if profile.confidence_state.get(topic) == "confident":
+            profile.confidence_state[topic] = "revisiting"
+        elif topic not in profile.confidence_state:
+            profile.confidence_state[topic] = "learning"
+
+        lstore.save_learner(profile)
+        ctx.append(
+            "confidence_update",
+            {
+                "learner_id": learner_id,
+                "topic": topic,
+                "confidence": profile.confidence_state.get(topic, "learning"),
+                "consecutive_correct": 0,
+                "event": "mistake_reset",
+            },
+            produced_by="system",
+        )
+
     def _handle_update(ctx, verdict: ReassessVerdict) -> None:
         """Pure code handler to update persistent learner profile in SQLite."""
         inp = ctx.latest("input") or {}
@@ -358,6 +452,14 @@ def build_flow(call=complete):
         profile.knowledge_state[topic] = verdict.score
         profile.session_count += 1
         profile.last_topic = topic
+
+        # Deterministic Confidence update on PASS:
+        streak = profile.consecutive_correct.get(topic, 0) + 1
+        profile.consecutive_correct[topic] = streak
+        if streak >= 2:
+            profile.confidence_state[topic] = "confident"
+        elif profile.confidence_state.get(topic) != "confident":
+            profile.confidence_state[topic] = "learning"
 
         # Resolve misconceptions identified in this session and record interventions tried
         resolved_names = []
@@ -388,6 +490,8 @@ def build_flow(call=complete):
             {
                 "learner_id": learner_id,
                 "concept_scores": profile.knowledge_state,
+                "confidence_state": profile.confidence_state,
+                "consecutive_correct": profile.consecutive_correct,
                 "resolved_misconceptions": resolved_names,
                 "session_count": profile.session_count,
             },

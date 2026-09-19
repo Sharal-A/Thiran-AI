@@ -2,6 +2,7 @@
 
 Nothing crosses a step boundary as prose. A schema fails loudly at the boundary
 where you can still see it - and slice/llm.py gets one repair pass out of it.
+Supports any DSA concept (recursion, two pointers, binary search, sliding window, etc.).
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel, Field
 class Misconception(BaseModel):
     """One diagnosed misconception, tracked across attempts until resolved."""
 
-    concept: str = Field(description="The underlying concept, e.g. 'base_case'")
+    concept: str = Field(description="The underlying concept, e.g. 'base_case', 'pointer_movement'")
     description: str = Field(description="Specific mental model failure")
     evidence: str = Field(description="Verbatim quote or code from learner's answer")
     attempt_count: int = Field(default=1, description="How many attempts learner has made")
@@ -28,6 +29,8 @@ class LearnerProfile(BaseModel):
     name: str
     domain: str = "computer_science"
     knowledge_state: dict[str, int] = Field(default_factory=dict, description="Concept to score 0-4")
+    confidence_state: dict[str, str] = Field(default_factory=dict, description="Concept to 'learning' | 'confident' | 'revisiting'")
+    consecutive_correct: dict[str, int] = Field(default_factory=dict, description="Concept to consecutive correct streak count")
     misconceptions: list[Misconception] = Field(default_factory=list)
     session_count: int = 0
     last_topic: str | None = None
@@ -51,13 +54,16 @@ class CognitiveAnalysis(BaseModel):
 
 class Intervention(BaseModel):
     """Unified teaching and Socratic debugging intervention produced in a single model call.
-    Combines concept instruction, strategy selection, and targeted debugging problem.
+    Sequence: explain mistake -> teach core DSA concept -> simple toy example -> targeted practice.
     """
 
-    explanation: str = Field(description="Targeted conceptual explanation, max 2 sentences")
-    teaching_strategy_used: str = Field(description="Strategy applied: e.g. 'conceptual_analogy', 'execution_trace', 'guard_scaffold'")
+    mistake_diagnosis: str = Field(description="1 sentence explaining the specific mistake in student's code")
+    core_dsa_concept: str = Field(description="1-2 sentences teaching the core DSA algorithmic invariant / principle")
+    simple_example: str = Field(description="1-2 lines demonstrating the pattern on a minimal toy trace")
+    explanation: str = Field(default="", description="Concise summary explanation")
+    teaching_strategy_used: str = Field(description="Strategy applied: e.g. 'conceptual_analogy', 'execution_trace_guard', 'fill_in_scaffold'")
     problem_statement: str = Field(description="1-sentence Socratic challenge directing learner to fix the flaw")
-    buggy_code_or_prompt: str = Field(description="Minimal flawed snippet or template to debug")
+    buggy_code_or_prompt: str = Field(description="Minimal flawed snippet or scaffold to debug")
     target_misconception: str = Field(description="The specific misconception concept being addressed")
 
 
@@ -75,6 +81,7 @@ class LearnerUpdate(BaseModel):
 
     learner_id: str
     concept_scores: dict[str, int]
+    confidence_state: dict[str, str]
     resolved_misconceptions: list[str]
     session_count: int
 

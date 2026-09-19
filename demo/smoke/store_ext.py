@@ -74,12 +74,21 @@ class LearnerStore:
             )
 
     def get_relevant_evidence(self, learner_id: str, topic: str) -> dict[str, Any]:
-        """Extracts strictly topic-relevant evidence: scores, unresolved misconceptions, and failed interventions."""
+        """Extracts strictly topic-relevant evidence: scores, confidence, unresolved misconceptions, and failed interventions."""
         profile = self.get_learner(learner_id)
         if not profile:
-            return {"score": None, "unresolved": [], "past_interventions": [], "session_count": 0}
+            return {
+                "score": None,
+                "confidence": "learning",
+                "consecutive_correct": 0,
+                "unresolved": [],
+                "past_interventions": [],
+                "session_count": 0,
+            }
 
         score = profile.knowledge_state.get(topic)
+        confidence = profile.confidence_state.get(topic, "learning")
+        consecutive_correct = profile.consecutive_correct.get(topic, 0)
         unresolved = [m.concept for m in profile.misconceptions if not m.resolved]
         past_int = []
         for m in profile.misconceptions:
@@ -87,6 +96,8 @@ class LearnerStore:
 
         return {
             "score": score,
+            "confidence": confidence,
+            "consecutive_correct": consecutive_correct,
             "unresolved": unresolved,
             "past_interventions": list(dict.fromkeys(past_int)),  # preserve order & deduplicate
             "session_count": profile.session_count,

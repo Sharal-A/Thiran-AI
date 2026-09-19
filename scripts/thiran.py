@@ -33,20 +33,67 @@ def _c(s: str, colour: str) -> str:
     return s if not sys.stdout.isatty() else f"{colour}{s}{RESET}"
 
 
+def _prompt_intake_if_interactive(args: argparse.Namespace) -> None:
+    """Prompt the learner through the structured intake workflow: Topic -> Familiarity."""
+    if not (getattr(args, "interactive", False) and sys.stdin.isatty()):
+        return
+
+    print(f"\n{BOLD}{CYAN}=== Thiran AI Assessment Setup ==={RESET}")
+    print("What would you like to learn?")
+    print(f"  - Built-in offline topics: {BOLD}recursion{RESET}, {BOLD}two_pointers{RESET}, {BOLD}binary_search{RESET}")
+    print(f"  - Or type {BOLD}any DSA topic{RESET} (e.g. arrays, dynamic_programming, graphs, trees)\n")
+
+    default_topic = args.topic or "recursion"
+    choice = input(f"Topic [{default_topic}]: ").strip()
+
+    if choice:
+        args.topic = choice.lower().replace(" ", "_")
+    else:
+        args.topic = default_topic
+
+    if args.stub and args.topic not in {"recursion", "two_pointers", "binary_search"}:
+        print(f"  {_c('Notice:', AMBER)} '{args.topic}' has no canned stub script; falling back to recursion stub.")
+
+    print(f"\nHow familiar are you with {BOLD}{args.topic}{RESET}?")
+    print(f"  {BOLD}[1] Beginner{RESET}        - Learning from scratch, need foundational concepts")
+    print(f"  {BOLD}[2] Some experience{RESET} - Know basics and indexing, need practice with patterns")
+    print(f"  {BOLD}[3] Comfortable{RESET}     - Confident with fundamentals, ready for tricky edge cases\n")
+
+    fam_choice = input("Select familiarity [1]: ").strip().lower()
+    if fam_choice in {"1", "beginner", "b"}:
+        args.familiarity = "beginner"
+    elif fam_choice in {"2", "some experience", "some_experience", "intermediate", "some", "s"}:
+        args.familiarity = "some_experience"
+    elif fam_choice in {"3", "comfortable", "advanced", "c"}:
+        args.familiarity = "comfortable"
+    else:
+        args.familiarity = getattr(args, "familiarity", None) or "beginner"
+
+    diff_map = {"beginner": "Easy", "some_experience": "Medium", "comfortable": "Hard"}
+    print(f"  Starting with: {BOLD}{diff_map.get(args.familiarity, 'Easy')} Concept Check{RESET}\n")
+
+
 def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
+    _prompt_intake_if_interactive(args)
     if args.stub:
         if session_num == 2:
             from demo.smoke.stub import Session2Stub
             call = Session2Stub()
         elif getattr(args, "case", "loop") == "clean":
             from demo.smoke.stub import CleanStub
-            call = CleanStub()
+            call = CleanStub(topic=args.topic)
         elif getattr(args, "case", "loop") == "hopeless":
             from demo.smoke.stub import AlwaysBlocksStub
             call = AlwaysBlocksStub()
+        elif args.topic == "two_pointers":
+            from demo.smoke.stub import TwoPointersStub
+            call = TwoPointersStub()
+        elif args.topic == "binary_search":
+            from demo.smoke.stub import BinarySearchStub
+            call = BinarySearchStub()
         else:
             from demo.smoke.stub import ThiranStub
-            call = ThiranStub()
+            call = ThiranStub(topic=args.topic)
         st = load_settings()
     else:
         from slice.llm import complete as call
@@ -67,6 +114,7 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
         "learner_id": args.learner,
         "name": learner_name,
         "topic": args.topic,
+        "familiarity": getattr(args, "familiarity", "beginner"),
         "session_number": session_num,
         "interactive": getattr(args, "interactive", False),
     }
@@ -81,7 +129,9 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
     print(f"\n{_c('run', DIM)} {BOLD}{run_id}{RESET}   {_c(session_tag, CYAN)}   learner: {CYAN}{args.learner}{RESET}   topic: {BOLD}{args.topic}{RESET}   ({_c(mode, DIM)})\n")
 
     if prior_profile:
-        print(f"  {_c('memory', MAGENTA)} Loaded profile for {prior_profile.name} (sessions: {prior_profile.session_count}, scores: {prior_profile.knowledge_state})")
+        conf = prior_profile.confidence_state.get(args.topic, "learning")
+        streak = prior_profile.consecutive_correct.get(args.topic, 0)
+        print(f"  {_c('memory', MAGENTA)} Loaded profile for {prior_profile.name} (sessions: {prior_profile.session_count}, scores: {prior_profile.knowledge_state}, confidence: [{conf.upper()}], streak: {streak})")
 
     final = runner.advance(store, run_id, build_flow(call), st)
 
@@ -89,21 +139,32 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
         k = v.kind
         p = v.payload
         if k == "diagnostic_challenge":
-            print(f"  {_c('assess   ', CYAN)} Diagnostic: {p.get('challenge_question')[:80]}...")
+            print(f"  {_c('assess   ', CYAN)} Diagnostic: {p.get('challenge_question')}")
         elif k == "learner_answer":
             phase = p.get("phase", "")
             ans = p.get("text", "").replace("\n", " ")
-            print(f"  {_c('student  ', DIM)} [{phase}] {ans[:80]}...")
+            print(f"  {_c('student  ', DIM)} [{phase}] {ans}")
         elif k == "cognitive_analysis":
             misconceptions = p.get("misconceptions", [])
             m_desc = misconceptions[0]["description"] if misconceptions else "No misconceptions"
-            print(f"  {_c('cognitive', MAGENTA)} Diagnosed: {m_desc[:80]}...")
+            print(f"  {_c('cognitive', MAGENTA)} Diagnosed: {m_desc}")
         elif k == "intervention":
             strat = p.get('teaching_strategy_used', 'analogy')
-            expl = p.get('explanation', '').replace('\n', ' ')
+            diag = p.get('mistake_diagnosis', '')
+            concept = p.get('core_dsa_concept', '')
+            ex = p.get('simple_example', '')
             prob = p.get('problem_statement', '').replace('\n', ' ')
-            print(f"  {_c('intervene', GREEN)} [{strat}] {expl[:80]}...")
-            print(f"  {_c('socratic ', AMBER)} Challenge: {prob[:80]}...")
+            if diag:
+                print(f"  {_c('diagnose ', RED)} Mistake: {diag}")
+            if concept:
+                print(f"  {_c('concept  ', CYAN)} Core Concept: {concept}")
+            if ex:
+                print(f"  {_c('example  ', DIM)} Trace: {ex}")
+            print(f"  {_c('practice ', AMBER)} [{strat}] Practice: {prob}")
+        elif k == "confidence_update":
+            c_val = p.get('confidence', 'learning').upper()
+            c_color = GREEN if c_val == "CONFIDENT" else (AMBER if c_val == "REVISITING" else CYAN)
+            print(f"  {_c('conf-eng ', c_color)} Confidence updated: [{c_val}] streak={p.get('consecutive_correct', 0)} ({p.get('event')})")
         elif k == "decision":
             if p.get("action") == "skip_cognitive":
                 print(f"  {_c('telemetry', DIM)} Cognitive re-call skipped (no new evidence)")
@@ -111,17 +172,17 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
             seq = ", ".join(p.get("concept_sequence", []))
             print(f"  {_c('planner  ', DIM)} Scaffold: {p.get('scaffold_level')} | Sequence: {seq}")
         elif k == "tutor_exchange":
-            print(f"  {_c('tutor    ', GREEN)} Explaining: {p.get('explanation')[:80]}...")
+            print(f"  {_c('tutor    ', GREEN)} Explaining: {p.get('explanation')}")
         elif k == "socratic_challenge":
-            print(f"  {_c('socratic ', AMBER)} Challenge: {p.get('problem_statement')[:80]}...")
+            print(f"  {_c('socratic ', AMBER)} Challenge: {p.get('problem_statement')}")
         elif k == "verdict":
             tag = _c("PASS ", GREEN) if p.get("status") == "PASS" else _c("BLOCK", AMBER)
-            print(f"  {_c('judge    ', DIM)} {tag} (score={p.get('score')}/4) - {p.get('feedback')[:75]}...")
+            print(f"  {_c('judge    ', DIM)} {tag} (score={p.get('score')}/4) - {p.get('feedback')}")
         elif k == "backward_loop":
             strat = p.get('escalated_strategy', '')
-            print(f"  {_c('loop     ', AMBER)} <- Backward loop #{p.get('loop_count')} (Strategy: {strat}): {p.get('reason')[:60]}...")
+            print(f"  {_c('loop     ', AMBER)} <- Backward loop #{p.get('loop_count')} (Strategy: {strat}): {p.get('reason')}")
         elif k == "learner_update":
-            print(f"  {_c('update   ', GREEN)} Profile saved: scores={p.get('concept_scores')}, resolved={p.get('resolved_misconceptions')}")
+            print(f"  {_c('update   ', GREEN)} Profile saved: scores={p.get('concept_scores')}, confidence={p.get('confidence_state')}, resolved={p.get('resolved_misconceptions')}")
         elif k == "failure":
             print(f"  {_c('failed   ', RED)} {p.get('kind')}: {p.get('detail')}")
 
@@ -150,7 +211,10 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
     # Post-session profile review
     updated_profile = lstore.get_learner(args.learner)
     if updated_profile:
-        print(f"\n  {BOLD}Updated Learner Memory:{RESET} Sessions={updated_profile.session_count} | Mastery={updated_profile.knowledge_state}")
+        conf = updated_profile.confidence_state.get(args.topic, "learning").upper()
+        streak = updated_profile.consecutive_correct.get(args.topic, 0)
+        c_color = GREEN if conf == "CONFIDENT" else (AMBER if conf == "REVISITING" else CYAN)
+        print(f"\n  {BOLD}Updated Learner Memory:{RESET} Sessions={updated_profile.session_count} | Mastery={updated_profile.knowledge_state} | Confidence={_c(f'[{conf}]', c_color)} | Streak={streak}")
 
     print(f"\n  {_c('replay:', DIM)} python -m scripts.thiran replay {run_id}\n")
     return 0 if ok else 1
@@ -196,6 +260,7 @@ def cmd_learners(args: argparse.Namespace) -> int:
             print(f"  {CYAN}{profile.name}{RESET} ({profile.learner_id})")
             print(f"    Domain: {profile.domain} | Sessions: {profile.session_count} | Last: {profile.last_topic}")
             print(f"    Knowledge State: {profile.knowledge_state}")
+            print(f"    Confidence State: {profile.confidence_state} | Streaks: {profile.consecutive_correct}")
             print(f"    Misconceptions: {resolved}/{total_m} resolved\n")
     return 0
 
@@ -213,6 +278,12 @@ def main() -> int:
     r.add_argument("--learner", default="surya", help="Learner ID")
     r.add_argument("--name", default="Surya", help="Learner display name")
     r.add_argument("--topic", default="recursion", help="Concept / topic to learn")
+    r.add_argument(
+        "--familiarity",
+        choices=["beginner", "some_experience", "comfortable"],
+        default="beginner",
+        help="Self-reported familiarity: beginner (easy), some_experience (medium), comfortable (hard)",
+    )
     r.add_argument("--interactive", action="store_true", help="Interactive terminal mode: type student code live")
     r.add_argument(
         "--case",
@@ -228,6 +299,12 @@ def main() -> int:
     s2.add_argument("--stub", action="store_true", help="Run with canned responses; no API key needed")
     s2.add_argument("--learner", default="surya", help="Learner ID")
     s2.add_argument("--topic", default="recursion", help="Concept / topic to learn")
+    s2.add_argument(
+        "--familiarity",
+        choices=["beginner", "some_experience", "comfortable"],
+        default="beginner",
+        help="Self-reported familiarity: beginner, some_experience, comfortable",
+    )
     s2.add_argument("--interactive", action="store_true", help="Interactive terminal mode: type student code live")
     s2.add_argument("--answers", nargs="*", default=None, help="Learner answers to inject")
     s2.set_defaults(fn=cmd_session2)
