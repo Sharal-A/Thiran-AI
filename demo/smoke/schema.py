@@ -1,39 +1,96 @@
-"""The three records this slice passes between steps.
+"""The records Thiran passes between steps.
 
 Nothing crosses a step boundary as prose. A schema fails loudly at the boundary
-where you can still see it - and slice/llm.py gets one repair pass out of it,
-which only works because there is something to repair against.
+where you can still see it - and slice/llm.py gets one repair pass out of it.
 """
 from __future__ import annotations
 
 from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
-class OpportunityRecord(BaseModel):
-    """What SPOT produces. NOTE what is absent: no solution, no value
-    proposition, no pitch. None of them has been earned yet."""
+class Misconception(BaseModel):
+    """One diagnosed misconception, tracked across attempts until resolved."""
 
-    problem: str = Field(
-        description="What is bad today. Stated so that it could be shown to be false")
-    who_specifically: str = Field(
-        description="A person in a situation. Never a category")
-    current_alternative: str = Field(
-        description="What they actually do right now instead")
-    why_now: str = Field(
-        description="What CHANGED. A trend is not a change")
+    concept: str = Field(description="The underlying concept, e.g. 'base_case'")
+    description: str = Field(description="Specific mental model failure")
+    evidence: str = Field(description="Verbatim quote or code from learner's answer")
+    attempt_count: int = Field(default=1, description="How many attempts learner has made")
+    confidence: Literal["low", "medium", "high"] = Field(default="medium", description="Learner confidence")
+    past_interventions: list[str] = Field(default_factory=list, description="List of past pedagogical strategies attempted")
+    resolved: bool = Field(default=False, description="Whether this misconception has been resolved")
 
 
-class Objection(BaseModel):
-    """One defect in THIS thesis. Never generic advice."""
+class LearnerProfile(BaseModel):
+    """Persistent learner state across sessions, stored in SQLite learners table."""
 
-    field: str = Field(description="Which field of OpportunityRecord is at fault")
-    problem: str = Field(description="The specific defect, quoting the offending text")
+    learner_id: str
+    name: str
+    domain: str = "computer_science"
+    knowledge_state: dict[str, int] = Field(default_factory=dict, description="Concept to score 0-4")
+    misconceptions: list[Misconception] = Field(default_factory=list)
+    session_count: int = 0
+    last_topic: str | None = None
 
 
-class Verdict(BaseModel):
-    """What the gate produces. The only record here that moves the run."""
+class DiagnosticChallenge(BaseModel):
+    """What the Assessment Agent produces (combines diagnostic evaluation & challenge)."""
+
+    prior_score: int = Field(ge=0, le=4, description="Estimated prior competency score 0-4")
+    concepts_detected: list[str] = Field(default_factory=list, description="Relevant subconcepts detected")
+    challenge_question: str = Field(description="Opening diagnostic problem posed to the learner")
+
+
+class CognitiveAnalysis(BaseModel):
+    """What the Cognitive Agent produces after analyzing learner's diagnostic answer."""
+
+    misconceptions: list[Misconception] = Field(default_factory=list)
+    mental_model_summary: str = Field(description="Summary of learner's mental model and reasoning flaws")
+    confidence_level: Literal["low", "medium", "high"] = "medium"
+
+
+class Intervention(BaseModel):
+    """Unified teaching and Socratic debugging intervention produced in a single model call.
+    Combines concept instruction, strategy selection, and targeted debugging problem.
+    """
+
+    explanation: str = Field(description="Targeted conceptual explanation, max 2 sentences")
+    teaching_strategy_used: str = Field(description="Strategy applied: e.g. 'conceptual_analogy', 'execution_trace', 'guard_scaffold'")
+    problem_statement: str = Field(description="1-sentence Socratic challenge directing learner to fix the flaw")
+    buggy_code_or_prompt: str = Field(description="Minimal flawed snippet or template to debug")
+    target_misconception: str = Field(description="The specific misconception concept being addressed")
+
+
+class ReassessVerdict(BaseModel):
+    """What the Gating Judge produces. PASS completes the session; BLOCK fires a backward loop."""
 
     status: Literal["PASS", "BLOCK"]
-    objections: list[Objection] = Field(default_factory=list)
+    score: int = Field(ge=0, le=4, description="Evaluated mastery score 0-4")
+    feedback: str = Field(description="Assessment feedback detailing why it passed or what remains flawed")
+    unresolved_evidence: str | None = Field(default=None, description="Flawed quote if blocked")
+
+
+class LearnerUpdate(BaseModel):
+    """What is recorded upon session completion, reflecting the updated learner state."""
+
+    learner_id: str
+    concept_scores: dict[str, int]
+    resolved_misconceptions: list[str]
+    session_count: int
+
+
+# Legacy aliases for backwards compatibility
+class LearningPlan(BaseModel):
+    scaffold_level: Literal["low", "medium", "high"] = "medium"
+    concept_sequence: list[str] = Field(default_factory=list)
+    teaching_strategy: str = "direct"
+
+class TutorExchange(BaseModel):
+    explanation: str
+    analogy: str
+    checkpoint_concept: str
+
+class SocraticChallenge(BaseModel):
+    problem_statement: str
+    buggy_code_or_prompt: str
+    target_misconception: str
