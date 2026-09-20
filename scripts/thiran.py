@@ -33,6 +33,102 @@ def _c(s: str, colour: str) -> str:
     return s if not sys.stdout.isatty() else f"{colour}{s}{RESET}"
 
 
+def _prompt_identity_if_interactive(args: argparse.Namespace, lstore: LearnerStore) -> None:
+    """Prompt the learner for identity in interactive mode: [1] Log in or [2] I'm new here."""
+    if not (getattr(args, "interactive", False) and sys.stdin.isatty()):
+        return
+
+    print(f"\n{BOLD}{CYAN}=== Thiran AI Authentication ==={RESET}")
+    print(f"  {BOLD}[1] Log in{RESET}         (existing learner with unique username)")
+    print(f"  {BOLD}[2] I'm new here{RESET}   (create new learner profile)\n")
+
+    while True:
+        choice = input("Select an option [1]: ").strip().lower()
+        if choice in {"", "1", "login", "log in", "l"}:
+            # Log in path
+            while True:
+                username = input("\nEnter your unique username (or 'b' to go back): ").strip()
+                if not username:
+                    print(f"  {_c('Username cannot be empty.', AMBER)}")
+                    continue
+                if username.lower() in {"b", "back"}:
+                    break
+
+                learner_id = username.lower().replace(" ", "_")
+                profile = lstore.get_learner(learner_id)
+                if not profile:
+                    # Check case-insensitive match on learner_id or name in all learners
+                    for row in lstore.list_learners():
+                        if row["learner_id"].lower() == learner_id or row.get("name", "").lower() == username.lower():
+                            profile = lstore.get_learner(row["learner_id"])
+                            break
+
+                if profile:
+                    args.learner = profile.learner_id
+                    args.name = profile.name
+                    print(f"\n{_c('Welcome back,', GREEN)} {BOLD}{profile.name}!{RESET} 👋")
+                    if profile.session_count > 0:
+                        print(f"  {_c('Sessions recorded :', DIM)} {profile.session_count}")
+                        if profile.last_topic:
+                            print(f"  {_c('Last topic studied:', DIM)} {profile.last_topic}")
+                        if profile.knowledge_state:
+                            print(f"  {_c('Knowledge state   :', DIM)} {profile.knowledge_state}")
+                        if profile.confidence_state:
+                            print(f"  {_c('Confidence state  :', DIM)} {profile.confidence_state}")
+                    else:
+                        print(f"  {_c('Profile loaded. Ready for your first session!', DIM)}")
+                    print()
+                    return
+                else:
+                    print(f"  {_c('Learner not found:', RED)} '{username}'")
+                    print(f"  Try again, type {BOLD}'b'{RESET} to go back, or choose {BOLD}[2]{RESET} to register.")
+
+            print(f"\n  {BOLD}[1] Log in{RESET}  |  {BOLD}[2] I'm new here{RESET}")
+            continue
+
+        elif choice in {"2", "new", "register", "r"}:
+            # New user path
+            print(f"\n{BOLD}=== Create New Learner Profile ==={RESET}")
+            while True:
+                name = input("Enter your full name: ").strip()
+                if not name:
+                    print(f"  {_c('Name cannot be empty.', AMBER)}")
+                    continue
+                break
+
+            default_uname = name.lower().replace(" ", "_")
+            while True:
+                uname_prompt = f"Choose a unique username [{default_uname}]: "
+                uname = input(uname_prompt).strip()
+                username = uname.lower().replace(" ", "_") if uname else default_uname
+
+                if not username:
+                    print(f"  {_c('Username cannot be empty.', AMBER)}")
+                    continue
+
+                # Check if already taken
+                existing = lstore.get_learner(username)
+                if existing:
+                    print(f"  {_c('Notice:', AMBER)} Username '{username}' is already taken by {existing.name}.")
+                    retry_choice = input("  Would you like to log in as this user instead? [y/N]: ").strip().lower()
+                    if retry_choice in {"y", "yes"}:
+                        args.learner = existing.learner_id
+                        args.name = existing.name
+                        print(f"\n{_c('Welcome back,', GREEN)} {BOLD}{existing.name}!{RESET} 👋\n")
+                        return
+                    continue
+
+                # Create the learner profile immediately in SQLite learners table
+                profile = lstore.get_or_create_learner(learner_id=username, name=name)
+                args.learner = profile.learner_id
+                args.name = profile.name
+                print(f"\n{_c('Profile created successfully for', GREEN)} {BOLD}{profile.name}{RESET} (username: {CYAN}{profile.learner_id}{RESET})! Welcome to Thiran AI.\n")
+                return
+
+        else:
+            print(f"  {_c('Invalid choice. Please select 1 or 2.', AMBER)}")
+
+
 def _prompt_intake_if_interactive(args: argparse.Namespace) -> None:
     """Prompt the learner through the structured intake workflow: Topic -> Familiarity."""
     if not (getattr(args, "interactive", False) and sys.stdin.isatty()):
@@ -43,8 +139,11 @@ def _prompt_intake_if_interactive(args: argparse.Namespace) -> None:
     print(f"  - Built-in offline topics: {BOLD}recursion{RESET}, {BOLD}two_pointers{RESET}, {BOLD}binary_search{RESET}")
     print(f"  - Or type {BOLD}any DSA topic{RESET} (e.g. arrays, dynamic_programming, graphs, trees)\n")
 
-    default_topic = args.topic or "recursion"
-    choice = input(f"Topic [{default_topic}]: ").strip()
+    default_topic = args.topic 
+    try:
+        choice = input(f"Topic [{default_topic}]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        choice = ""
 
     if choice:
         args.topic = choice.lower().replace(" ", "_")
@@ -59,7 +158,10 @@ def _prompt_intake_if_interactive(args: argparse.Namespace) -> None:
     print(f"  {BOLD}[2] Some experience{RESET} - Know basics and indexing, need practice with patterns")
     print(f"  {BOLD}[3] Comfortable{RESET}     - Confident with fundamentals, ready for tricky edge cases\n")
 
-    fam_choice = input("Select familiarity [1]: ").strip().lower()
+    try:
+        fam_choice = input("Select familiarity [1]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        fam_choice = "1"
     if fam_choice in {"1", "beginner", "b"}:
         args.familiarity = "beginner"
     elif fam_choice in {"2", "some experience", "some_experience", "intermediate", "some", "s"}:
@@ -73,13 +175,76 @@ def _prompt_intake_if_interactive(args: argparse.Namespace) -> None:
     print(f"  Starting with: {BOLD}{diff_map.get(args.familiarity, 'Easy')} Concept Check{RESET}\n")
 
 
-def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
-    _prompt_intake_if_interactive(args)
+def _post_session_menu(args: argparse.Namespace, lstore: LearnerStore, final: RunState) -> str | None:
+    """Display post-session options to the learner in interactive mode.
+
+    Returns:
+        "new_topic": Prompt fresh topic and familiarity selection.
+        "depth": Continue on same topic with elevated difficulty (if PASSED).
+        None: Exit session.
+    """
+    if not (getattr(args, "interactive", False) and sys.stdin.isatty()):
+        return None
+
+    learner_name = getattr(args, "name", None) or getattr(args, "learner", "there")
+
+    print(f"{BOLD}{'-' * 53}{RESET}")
+    print("  Session complete! What would you like to do next?")
+    print(f"  {BOLD}[1] Start a new topic{RESET}        (choose a different topic)")
+    print(f"  {BOLD}[2] Go more in depth{RESET}         (same topic, higher difficulty)")
+    print(f"  {BOLD}[3] Exit{RESET}")
+    print(f"{BOLD}{'-' * 53}{RESET}\n")
+
+    while True:
+        try:
+            choice = input("Select [1]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n\nGoodbye, {learner_name}! See you next time. 👋\n")
+            return None
+
+        if choice in {"", "1", "start a new topic", "new", "new topic", "topic"}:
+            args.topic = ""
+            args.familiarity = "beginner"
+            return "new_topic"
+        elif choice in {"2", "go more in depth", "depth", "in depth", "d"}:
+            fam_map = {
+                "beginner": "some_experience",
+                "some_experience": "comfortable",
+                "comfortable": "comfortable",
+            }
+            if final is RunState.COMPLETE:
+                args.familiarity = fam_map.get(getattr(args, "familiarity", "beginner"), "comfortable")
+            # If session was FAILED, retain the same familiarity level
+            diff_map = {"beginner": "Easy", "some_experience": "Medium", "comfortable": "Hard"}
+            current_fam = getattr(args, "familiarity", "beginner")
+            diff_label = diff_map.get(current_fam, "Medium")
+            print(f"\n  Diving deeper into: {BOLD}{args.topic}{RESET}  |  Difficulty: {BOLD}{diff_label} Concept Check{RESET}\n")
+            return "depth"
+        elif choice in {"3", "exit", "quit", "q", "e"}:
+            print(f"\nGoodbye, {learner_name}! See you next time. 👋\n")
+            return None
+        else:
+            print(f"  {_c('Invalid choice. Please select 1, 2, or 3.', AMBER)}")
+
+
+def _execute_session(
+    args: argparse.Namespace,
+    session_num: int = 1,
+    is_continuation: bool = False,
+    skip_intake: bool = False,
+) -> int:
+    store = Store(args.db)
+    lstore = LearnerStore(store)
+
+    if not is_continuation:
+        _prompt_identity_if_interactive(args, lstore)
+    if not skip_intake:
+        _prompt_intake_if_interactive(args)
+    if is_continuation and hasattr(args, "answers"):
+        args.answers = None
+
     if args.stub:
-        if session_num == 2:
-            from demo.smoke.stub import Session2Stub
-            call = Session2Stub()
-        elif getattr(args, "case", "loop") == "clean":
+        if getattr(args, "case", "loop") == "clean":
             from demo.smoke.stub import CleanStub
             call = CleanStub(topic=args.topic)
         elif getattr(args, "case", "loop") == "hopeless":
@@ -91,6 +256,12 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
         elif args.topic == "binary_search":
             from demo.smoke.stub import BinarySearchStub
             call = BinarySearchStub()
+        elif session_num == 2 and args.topic == "recursion":
+            from demo.smoke.stub import Session2Stub
+            call = Session2Stub()
+        elif session_num == 2:
+            from demo.smoke.stub import Session2Stub
+            call = Session2Stub()
         else:
             from demo.smoke.stub import ThiranStub
             call = ThiranStub(topic=args.topic)
@@ -103,12 +274,13 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
                   "\nRun with --stub to test offline without an API key.")
             return 2
 
-    store = Store(args.db)
-    lstore = LearnerStore(store)
     run_id = store.create_run("thiran", meta={"learner_id": args.learner, "topic": args.topic, "session": session_num})
 
     prior_profile = lstore.get_learner(args.learner)
     learner_name = getattr(args, "name", None) or (prior_profile.name if prior_profile else args.learner.capitalize())
+
+    if session_num == 2 and getattr(args, "interactive", False) and (not prior_profile or prior_profile.session_count == 0):
+        print(_c(f"Note: No previous session recorded for '{args.learner}'. Running Session 2 will seed a new profile.", AMBER))
 
     input_payload = {
         "learner_id": args.learner,
@@ -217,6 +389,16 @@ def _execute_session(args: argparse.Namespace, session_num: int = 1) -> int:
         print(f"\n  {BOLD}Updated Learner Memory:{RESET} Sessions={updated_profile.session_count} | Mastery={updated_profile.knowledge_state} | Confidence={_c(f'[{conf}]', c_color)} | Streak={streak}")
 
     print(f"\n  {_c('replay:', DIM)} python -m scripts.thiran replay {run_id}\n")
+
+    if getattr(args, "interactive", False) and sys.stdin.isatty():
+        action = _post_session_menu(args, lstore, final)
+        if action == "new_topic":
+            return _execute_session(args, session_num=session_num + 1, is_continuation=True, skip_intake=False)
+        elif action == "depth":
+            return _execute_session(args, session_num=session_num + 1, is_continuation=True, skip_intake=True)
+        else:
+            return 0
+
     return 0 if ok else 1
 
 
@@ -225,11 +407,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_session2(args: argparse.Namespace) -> int:
-    store = Store(args.db)
-    lstore = LearnerStore(store)
-    prior = lstore.get_learner(args.learner)
-    if not prior or prior.session_count == 0:
-        print(_c(f"Note: No previous session recorded for '{args.learner}'. Running Session 2 will seed a new profile.", AMBER))
+    if not getattr(args, "interactive", False):
+        store = Store(args.db)
+        lstore = LearnerStore(store)
+        prior = lstore.get_learner(args.learner)
+        if not prior or prior.session_count == 0:
+            print(_c(f"Note: No previous session recorded for '{args.learner}'. Running Session 2 will seed a new profile.", AMBER))
     return _execute_session(args, session_num=2)
 
 
