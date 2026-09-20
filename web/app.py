@@ -497,6 +497,147 @@ def session_answer(req: SubmitAnswerRequest):
         raise HTTPException(status_code=400, detail=f"Invalid phase for submitting answer: {phase}")
 
 
+@app.get("/api/session/{run_id}")
+def get_session_state(run_id: str):
+    store = get_store()
+    lstore = LearnerStore(store)
+
+    run_row = store.db.execute(
+        "SELECT id, domain, state, created_at, updated_at, meta_json FROM runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    if not run_row:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    meta = {}
+    try:
+        meta = json.loads(run_row["meta_json"])
+    except Exception:
+        pass
+
+    learner_id = meta.get("learner_id", "surya")
+    topic = meta.get("topic", "recursion")
+    profile = lstore.get_learner(learner_id)
+
+    versions = store.db.execute(
+        "SELECT seq, kind, produced_by, payload_json, created_at FROM versions WHERE run_id = ? ORDER BY seq ASC",
+        (run_id,),
+    ).fetchall()
+
+    diagnostic_challenge = None
+    cognitive_analysis = None
+    intervention = None
+    verdict = None
+    backward_loops = []
+    learner_answers = []
+    current_phase = "AWAIT_DIAGNOSTIC"
+    familiarity = "beginner"
+
+    for v in versions:
+        kind = v["kind"]
+        try:
+            payload = json.loads(v["payload_json"])
+        except Exception:
+            payload = {}
+
+        if kind == "input":
+            familiarity = payload.get("familiarity", familiarity)
+            topic = payload.get("topic", topic)
+        elif kind == "phase":
+            current_phase = payload.get("name", current_phase)
+        elif kind == "diagnostic_challenge":
+            diagnostic_challenge = payload
+        elif kind == "cognitive_analysis":
+            cognitive_analysis = payload
+        elif kind == "intervention":
+            intervention = payload
+        elif kind == "learner_answer":
+            learner_answers.append(payload)
+        elif kind == "verdict":
+            verdict = payload
+        elif kind == "backward_loop":
+            backward_loops.append(payload)
+
+    streak = profile.consecutive_correct.get(topic, 0) if profile else 0
+    confidence = profile.confidence_state.get(topic, "learning") if profile else "learning"
+
+    return {
+        "run_id": run_id,
+        "learner_id": learner_id,
+        "topic": topic,
+        "familiarity": familiarity,
+        "state": run_row["state"],
+        "current_phase": current_phase,
+        "diagnostic_challenge": diagnostic_challenge,
+        "cognitive_analysis": cognitive_analysis,
+        "intervention": intervention,
+        "verdict": verdict,
+        "backward_loops": backward_loops,
+        "learner_answers": learner_answers,
+        "streak": streak,
+        "confidence": confidence,
+    }
+
+
+# ---------------------------------------------------------------- Routes: Recent Questions & History
+
+
+@app.get("/api/recent-questions/{learner_id}")
+def get_recent_questions(learner_id: str, limit: int = 10):
+    store = get_store()
+    runs_rows = store.db.execute(
+        "SELECT id, domain, state, created_at, updated_at, meta_json FROM runs WHERE meta_json LIKE ? ORDER BY created_at DESC LIMIT ?",
+        (f'%"{learner_id}"%', limit),
+    ).fetchall()
+
+    recent = []
+    for r in runs_rows:
+        try:
+            meta = json.loads(r["meta_json"])
+        except Exception:
+            meta = {}
+        topic = meta.get("topic", "recursion")
+
+        v_diag = store.db.execute(
+            "SELECT payload_json FROM versions WHERE run_id = ? AND kind = 'diagnostic_challenge' ORDER BY seq ASC LIMIT 1",
+            (r["id"],),
+        ).fetchone()
+
+        question = ""
+        prior_score = None
+        if v_diag:
+            try:
+                p = json.loads(v_diag["payload_json"])
+                question = p.get("challenge_question", "")
+                prior_score = p.get("prior_score")
+            except Exception:
+                pass
+
+        v_verdict = store.db.execute(
+            "SELECT payload_json FROM versions WHERE run_id = ? AND kind = 'verdict' ORDER BY seq DESC LIMIT 1",
+            (r["id"],),
+        ).fetchone()
+        verdict_status = None
+        if v_verdict:
+            try:
+                pv = json.loads(v_verdict["payload_json"])
+                verdict_status = pv.get("status")
+            except Exception:
+                pass
+
+        recent.append({
+            "run_id": r["id"],
+            "topic": topic,
+            "question": question or f"{topic.replace('_', ' ').capitalize()} Practice Challenge",
+            "created_at": r["created_at"],
+            "state": r["state"],
+            "verdict_status": verdict_status,
+            "prior_score": prior_score,
+        })
+
+    return {"learner_id": learner_id, "recent_questions": recent}
+
+
 # ---------------------------------------------------------------- Routes: Deterministic Analytics
 
 

@@ -63,6 +63,25 @@
           </button>
         </nav>
 
+        <!-- Recent Questions Widget -->
+        <div class="recent-questions-section" id="sidebar-recent-questions">
+          <div class="recent-questions-header">
+            <div class="recent-questions-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span>Recent Questions</span>
+            </div>
+            <span class="badge badge-teal" id="recent-questions-count" style="padding: 0.15rem 0.45rem; font-size: 0.68rem;">0</span>
+          </div>
+          <div class="recent-questions-list" id="recent-questions-list">
+            <div class="recent-empty-state">
+              <span>No questions searched yet. Start a topic to practice!</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Pomodoro Timer Widget -->
         <div class="pomodoro-card" id="pomodoro-sidebar-card">
           <div class="pomodoro-header">
@@ -195,23 +214,40 @@
               </p>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;">
                 <div class="form-group">
-                  <label class="form-label" for="topic-select">Topic Domain</label>
-                  <select id="topic-select">
-                    <option value="recursion" selected>Recursion (Base Cases & Call Stacks)</option>
-                    <option value="two_pointers">Two Pointers (Invariants & Window Boundaries)</option>
-                    <option value="binary_search">Binary Search (Midpoint Halving & Edge Guards)</option>
-                    <option value="arrays">Arrays (Indexing & In-place Transformations)</option>
-                    <option value="trees">Trees (Traversal & Subtree Decomposition)</option>
-                    <option value="dynamic_programming">Dynamic Programming (Subproblems & Memoization)</option>
-                  </select>
+                  <label class="form-label" for="topic-input">Topic Domain</label>
+                  <input
+                    type="text"
+                    id="topic-input"
+                    class="form-input"
+                    placeholder="e.g. Trees, Recursion, Two Pointers, Graph Traversal, Binary Search..."
+                    value="recursion"
+                    autocomplete="off"
+                  >
+                  <div class="quick-chips-row">
+                    <span class="quick-chips-label">Popular:</span>
+                    <button type="button" class="quick-chip-btn" data-fill="topic" data-val="recursion">Recursion</button>
+                    <button type="button" class="quick-chip-btn" data-fill="topic" data-val="trees">Trees</button>
+                    <button type="button" class="quick-chip-btn" data-fill="topic" data-val="two_pointers">Two Pointers</button>
+                    <button type="button" class="quick-chip-btn" data-fill="topic" data-val="binary_search">Binary Search</button>
+                    <button type="button" class="quick-chip-btn" data-fill="topic" data-val="dynamic_programming">DP</button>
+                  </div>
                 </div>
                 <div class="form-group">
-                  <label class="form-label" for="familiarity-select">Self-Reported Familiarity</label>
-                  <select id="familiarity-select">
-                    <option value="beginner" selected>Beginner (Easy — foundational concepts)</option>
-                    <option value="some_experience">Some Experience (Medium — standard patterns)</option>
-                    <option value="comfortable">Comfortable (Hard — subtle invariants & edge cases)</option>
-                  </select>
+                  <label class="form-label" for="familiarity-input">Difficulty / Familiarity Level</label>
+                  <input
+                    type="text"
+                    id="familiarity-input"
+                    class="form-input"
+                    placeholder="e.g. Beginner, Easy, Intermediate, Advanced..."
+                    value="beginner"
+                    autocomplete="off"
+                  >
+                  <div class="quick-chips-row">
+                    <span class="quick-chips-label">Presets:</span>
+                    <button type="button" class="quick-chip-btn" data-fill="familiarity" data-val="beginner">Beginner</button>
+                    <button type="button" class="quick-chip-btn" data-fill="familiarity" data-val="intermediate">Intermediate</button>
+                    <button type="button" class="quick-chip-btn" data-fill="familiarity" data-val="advanced">Advanced</button>
+                  </div>
                 </div>
               </div>
               <button class="btn-primary" id="start-learning-btn" style="padding: 0.85rem 1.75rem; font-size: 0.95rem;">
@@ -225,8 +261,15 @@
             <div class="card-top-bar">
               <div class="stage-badge-group">
                 <span class="badge badge-teal" id="card-stage-label">Diagnostic Challenge</span>
+                <span class="badge badge-gold" id="card-status-badge">Live Interactive Mode</span>
               </div>
-              <span class="badge badge-gold" id="card-status-badge">Live Interactive Mode</span>
+              <button class="btn-exit-chat" id="exit-chat-btn" title="Exit this session and return to topic selection">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                <span>Exit Chat / New Topic</span>
+              </button>
             </div>
 
             <!-- Dynamic Prompt Area: Diagnostic / Intervention / Judge -->

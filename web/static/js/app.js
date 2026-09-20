@@ -101,6 +101,22 @@ const api = {
     }
     return res.json();
   },
+  async getRecentQuestions(learnerId) {
+    const res = await fetch(`/api/recent-questions/${encodeURIComponent(learnerId)}`);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to load recent questions");
+    }
+    return res.json();
+  },
+  async getSession(runId) {
+    const res = await fetch(`/api/session/${encodeURIComponent(runId)}`);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Failed to load session details");
+    }
+    return res.json();
+  },
 };
 
 // ============================================================================
@@ -161,6 +177,12 @@ function initUI() {
     submitCodeBtn.addEventListener("click", handleSubmitAnswer);
   }
 
+  // Exit Chat / New Topic Button
+  const exitChatBtn = document.getElementById("exit-chat-btn");
+  if (exitChatBtn) {
+    exitChatBtn.addEventListener("click", handleExitChat);
+  }
+
   // Quick reset / next actions
   const postNewTopicBtn = document.getElementById("post-action-new-topic");
   if (postNewTopicBtn) {
@@ -177,12 +199,34 @@ function initUI() {
     postDepthBtn.addEventListener("click", () => {
       document.getElementById("post-session-modal").style.display = "none";
       // Elevate familiarity
-      if (state.familiarity === "beginner") state.familiarity = "some_experience";
-      else if (state.familiarity === "some_experience") state.familiarity = "comfortable";
-      document.getElementById("familiarity-select").value = state.familiarity;
+      const currentFam = state.familiarity.toLowerCase();
+      if (currentFam.includes("begin") || currentFam.includes("easy")) {
+        state.familiarity = "intermediate";
+      } else if (currentFam.includes("inter") || currentFam.includes("medium")) {
+        state.familiarity = "advanced";
+      } else {
+        state.familiarity = "mastery";
+      }
+      const famInput = document.getElementById("familiarity-input");
+      if (famInput) famInput.value = state.familiarity;
       startNewSession();
     });
   }
+
+  // Quick Preset Chips (Topic & Familiarity)
+  document.querySelectorAll(".quick-chip-btn[data-fill]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const fillTarget = chip.getAttribute("data-fill");
+      const val = chip.getAttribute("data-val");
+      if (fillTarget === "topic") {
+        const topicInput = document.getElementById("topic-input");
+        if (topicInput) topicInput.value = val;
+      } else if (fillTarget === "familiarity") {
+        const famInput = document.getElementById("familiarity-input");
+        if (famInput) famInput.value = val;
+      }
+    });
+  });
 
   // Load quick learner profile pills into login modal
   loadQuickLearners();
@@ -310,6 +354,7 @@ function applyLearnerProfile() {
 
   // Update streak widget from profile or analytics
   fetchAndUpdateStreak();
+  loadRecentQuestions();
 }
 
 async function fetchAndUpdateStreak() {
@@ -388,8 +433,10 @@ function setPipelineStage(stageNum) {
 async function startNewSession() {
   if (!state.currentLearner) return;
 
-  const topic = document.getElementById("topic-select").value;
-  const familiarity = document.getElementById("familiarity-select").value;
+  const topicInput = document.getElementById("topic-input");
+  const famInput = document.getElementById("familiarity-input");
+  const topic = (topicInput ? topicInput.value.trim() : "") || "recursion";
+  const familiarity = (famInput ? famInput.value.trim() : "") || "beginner";
   state.topic = topic;
   state.familiarity = familiarity;
 
@@ -420,6 +467,9 @@ async function startNewSession() {
     // Render Diagnostic Challenge
     renderDiagnosticChallenge(res.diagnostic_challenge);
 
+    // Refresh Recent Questions list in sidebar
+    loadRecentQuestions();
+
     // Clear and focus code editor
     const codeEditor = document.getElementById("student-code-input");
     codeEditor.value = "";
@@ -429,6 +479,190 @@ async function startNewSession() {
   } finally {
     btn.disabled = false;
     btn.textContent = "Start Adaptive Session";
+  }
+}
+
+async function loadRecentQuestions() {
+  if (!state.currentLearner) return;
+  try {
+    const data = await api.getRecentQuestions(state.currentLearner.learner_id);
+    renderRecentQuestions(data.recent_questions || []);
+  } catch (err) {
+    console.warn("Could not load recent questions:", err);
+  }
+}
+
+function handleExitChat() {
+  state.currentRun = null;
+  document.getElementById("active-interaction-card").style.display = "none";
+  document.getElementById("post-session-modal").style.display = "none";
+  document.getElementById("backward-loop-banner").classList.remove("active");
+  const setupCard = document.getElementById("setup-session-card");
+  if (setupCard) {
+    setupCard.style.display = "block";
+    setupCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  setPipelineStage(1);
+  const codeEditor = document.getElementById("student-code-input");
+  if (codeEditor) codeEditor.value = "";
+  loadRecentQuestions();
+}
+
+function renderRecentQuestions(questions) {
+  const container = document.getElementById("recent-questions-list");
+  const countBadge = document.getElementById("recent-questions-count");
+  if (!container) return;
+
+  if (countBadge) {
+    countBadge.textContent = questions.length;
+  }
+
+  if (!questions || questions.length === 0) {
+    container.innerHTML = `
+      <div class="recent-empty-state">
+        <span>No questions searched yet. Start a topic to practice!</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = questions
+    .map((q) => {
+      const topicDisplay = escapeHtml(q.topic.replace("_", " "));
+      const questionSnippet = escapeHtml(q.question);
+      let timeStr = "Recent";
+      if (q.created_at) {
+        const d = new Date(q.created_at * 1000);
+        timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+
+      const isComplete = q.state === "complete" || q.verdict_status === "PASS";
+      const statusPill = isComplete
+        ? `<span class="recent-card-status complete">Done</span>`
+        : `<span class="recent-card-status in-progress">In Progress</span>`;
+
+      return `
+        <div class="recent-question-card" data-run-id="${escapeHtml(q.run_id)}" data-topic="${escapeHtml(q.topic)}" title="Click to continue studying ${topicDisplay}">
+          <div class="recent-card-top">
+            <span class="recent-card-topic">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="10"/>
+              </svg>
+              ${topicDisplay}
+            </span>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              ${statusPill}
+              <span class="recent-card-time">${timeStr}</span>
+            </div>
+          </div>
+          <div class="recent-card-question">${questionSnippet}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  container.querySelectorAll(".recent-question-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const runId = card.getAttribute("data-run-id");
+      const topic = card.getAttribute("data-topic");
+      if (runId) {
+        resumePreviousSession(runId, topic);
+      } else if (topic) {
+        selectRecentTopic(topic);
+      }
+    });
+  });
+}
+
+async function resumePreviousSession(runId, topic) {
+  if (!state.currentLearner) return;
+
+  switchView("learning");
+  try {
+    const res = await api.getSession(runId);
+    state.currentRun = res;
+    state.topic = res.topic || topic || "recursion";
+    state.familiarity = res.familiarity || "beginner";
+    state.streak = res.streak || 0;
+    state.confidence = res.confidence || "learning";
+
+    // Update UI headers
+    document.getElementById("active-topic-badge").textContent = state.topic.replace("_", " ");
+    document.getElementById("topic-streak-badge").textContent = `Streak: ${state.streak}`;
+    document.getElementById("topic-confidence-badge").textContent = `[${state.confidence.toUpperCase()}]`;
+
+    // Switch view cards
+    document.getElementById("setup-session-card").style.display = "none";
+    document.getElementById("active-interaction-card").style.display = "block";
+    document.getElementById("post-session-modal").style.display = "none";
+
+    // Check backward loop state
+    const backwardBanner = document.getElementById("backward-loop-banner");
+    if (res.backward_loops && res.backward_loops.length > 0) {
+      const latestLoop = res.backward_loops[res.backward_loops.length - 1];
+      document.getElementById("backward-loop-strategy").textContent =
+        `Escalated Strategy #${res.backward_loops.length}: ${latestLoop.escalated_strategy || "execution_trace_guard"}`;
+      document.getElementById("backward-loop-detail").textContent =
+        latestLoop.reason || "Student code blocked by Gating Judge. The system adaptively shifts instructional scaffolding.";
+      backwardBanner.classList.add("active");
+    } else {
+      backwardBanner.classList.remove("active");
+    }
+
+    const codeEditor = document.getElementById("student-code-input");
+
+    if (res.current_phase === "AWAIT_DIAGNOSTIC") {
+      setPipelineStage(1);
+      if (res.diagnostic_challenge) {
+        renderDiagnosticChallenge(res.diagnostic_challenge);
+      }
+      codeEditor.value = (res.learner_answers && res.learner_answers[0] && res.learner_answers[0].text) || "";
+      codeEditor.focus();
+    } else if (res.current_phase === "AWAIT_SOCRATIC") {
+      setPipelineStage(3);
+      if (res.cognitive_analysis && res.intervention) {
+        renderIntervention(res.cognitive_analysis, res.intervention);
+      }
+      const lastAnswer = res.learner_answers && res.learner_answers.length > 0
+        ? res.learner_answers[res.learner_answers.length - 1].text
+        : "";
+      codeEditor.value = lastAnswer;
+      codeEditor.focus();
+    } else if (res.current_phase === "COMPLETE" || res.state === "complete") {
+      setPipelineStage(5);
+      if (res.verdict) {
+        renderPassVerdict(res);
+      } else {
+        renderPassVerdict({ verdict: { status: "PASS", score: 4, feedback: "Concept mastered successfully." } });
+      }
+      document.getElementById("post-session-modal").style.display = "block";
+      codeEditor.value = (res.learner_answers && res.learner_answers.length > 0 && res.learner_answers[res.learner_answers.length - 1].text) || "";
+    } else {
+      setPipelineStage(1);
+      if (res.diagnostic_challenge) {
+        renderDiagnosticChallenge(res.diagnostic_challenge);
+      }
+      codeEditor.focus();
+    }
+  } catch (err) {
+    console.error("Error resuming session:", err);
+    alert("Could not resume session: " + err.message);
+  }
+}
+
+function selectRecentTopic(topic) {
+  switchView("learning");
+  const topicInput = document.getElementById("topic-input");
+  if (topicInput) {
+    topicInput.value = topic;
+    topicInput.focus();
+    const setupCard = document.getElementById("setup-session-card");
+    if (setupCard) {
+      setupCard.style.display = "block";
+      document.getElementById("active-interaction-card").style.display = "none";
+      document.getElementById("post-session-modal").style.display = "none";
+      setupCard.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   }
 }
 
