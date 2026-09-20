@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thiran AI — Adaptive Multi-Agent Learning System</title>
+  <meta name="description" content="Thiran AI: Clean, minimal, adaptive multi-agent learning platform with deterministic evidence audit trails.">
+  <link rel="icon" type="image/jpeg" href="/static/images/thiran-emblem.jpg">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div id="app-container">
+
+    <!-- ====================================================================
+         Sidebar: Logo, Navigation, Streak, Pomodoro, Profile
+         ==================================================================== -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-header">
+        <a href="#" class="brand-wrapper" id="brand-link" onclick="switchView('learning'); return false;">
+          <img src="/static/images/thiran-emblem.jpg" alt="Thiran Emblem" class="brand-emblem" id="brand-logo-img">
+          <div class="brand-text-col">
+            <span class="brand-title">Thiran AI</span>
+            <span class="brand-subtitle">Adaptive Tutor</span>
+          </div>
+        </a>
+        <button class="collapse-btn" id="collapse-sidebar-btn" title="Toggle Sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Daily Streak Widget -->
+        <div class="streak-widget" id="sidebar-streak-widget">
+          <div class="streak-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2c0 4-4 6-4 10a4 4 0 0 0 8 0c0-4-4-6-4-10z"/>
+            </svg>
+          </div>
+          <div class="streak-info">
+            <span class="streak-label">Daily Streak</span>
+            <span class="streak-val" id="sidebar-streak-value">-- Days</span>
+          </div>
+        </div>
+
+        <!-- Navigation Menu -->
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-view="learning" id="nav-learning-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+            </svg>
+            <span>Learning Session</span>
+          </button>
+          <button class="nav-item" data-view="analytics" id="nav-analytics-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="20" x2="18" y2="10"/>
+              <line x1="12" y1="20" x2="12" y2="4"/>
+              <line x1="6" y1="20" x2="6" y2="14"/>
+            </svg>
+            <span>Audit Analytics</span>
+          </button>
+        </nav>
+
+        <!-- Pomodoro Timer Widget -->
+        <div class="pomodoro-card" id="pomodoro-sidebar-card">
+          <div class="pomodoro-header">
+            <span>Pomodoro</span>
+            <span class="pomo-status" id="pomo-status-label">Focus</span>
+          </div>
+          <div class="pomodoro-modes">
+            <button class="pomo-mode-btn active" data-mode="focus">Focus</button>
+            <button class="pomo-mode-btn" data-mode="short">Short</button>
+            <button class="pomo-mode-btn" data-mode="long">Long</button>
+          </div>
+          <div class="pomodoro-timer-display" id="pomodoro-time-display">25:00</div>
+          <div class="pomodoro-controls">
+            <button class="pomo-btn pomo-btn-start" id="pomo-start-btn">Start</button>
+            <button class="pomo-btn pomo-btn-reset" id="pomo-reset-btn">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Profile Snippet & Logout -->
+      <div class="sidebar-footer">
+        <div class="user-snippet">
+          <div class="user-avatar" id="sidebar-user-avatar">S</div>
+          <div class="user-text-col">
+            <span class="user-name" id="sidebar-user-name">Surya</span>
+            <span class="user-id-sub" id="sidebar-user-id">@surya</span>
+          </div>
+        </div>
+        <button class="logout-btn" id="logout-btn" title="Log Out">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ====================================================================
+         Main Content Area
+         ==================================================================== -->
+    <main class="main-content">
+      <!-- Top Sticky Navigation Bar -->
+      <header class="top-navbar">
+        <div class="nav-breadcrumb">
+          <span>Thiran AI</span>
+          <span>/</span>
+          <span class="current" id="nav-breadcrumb-current">Adaptive Learning</span>
+        </div>
+        <div class="nav-actions">
+          <span class="badge badge-teal" id="active-topic-badge">Recursion</span>
+          <span class="badge badge-gold" id="topic-streak-badge">Streak: 0</span>
+          <span class="badge badge-green" id="topic-confidence-badge">[LEARNING]</span>
+        </div>
+      </header>
+
+      <div class="main-view-container">
+
+        <!-- ================================================================
+             VIEW 1: ADAPTIVE LEARNING
+             ================================================================ -->
+        <section id="learning-view">
+
+          <!-- Exact Thiran 5-Stage Learning Pipeline -->
+          <div class="pipeline-card">
+            <div class="pipeline-header">
+              <div class="pipeline-title-group">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--teal-primary)" stroke-width="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                </svg>
+                <h3>Thiran Pedagogical Pipeline</h3>
+              </div>
+              <div class="topic-meta-pills">
+                <span class="badge badge-teal">Adaptive Feedback Loop</span>
+              </div>
+            </div>
+
+            <!-- Stepper Indicators -->
+            <div class="pipeline-stepper">
+              <div class="step-connector"></div>
+              <div class="step-connector-progress" id="step-connector-progress"></div>
+
+              <div class="step-item active" id="pipeline-step-1">
+                <div class="step-node">1</div>
+                <div class="step-label">Assess & Check</div>
+              </div>
+              <div class="step-item" id="pipeline-step-2">
+                <div class="step-node">2</div>
+                <div class="step-label">Cognitive Analysis</div>
+              </div>
+              <div class="step-item" id="pipeline-step-3">
+                <div class="step-node">3</div>
+                <div class="step-label">Intervention & Practice</div>
+              </div>
+              <div class="step-item" id="pipeline-step-4">
+                <div class="step-node">4</div>
+                <div class="step-label">Gating Judge</div>
+              </div>
+              <div class="step-item" id="pipeline-step-5">
+                <div class="step-node">5</div>
+                <div class="step-label">Update & Mastery</div>
+              </div>
+            </div>
+
+            <!-- Flagship Animated Backward Adaptation Banner -->
+            <div class="backward-loop-banner" id="backward-loop-banner">
+              <div class="backward-banner-header">
+                <div class="backward-title">
+                  <span class="backward-arrow-anim">↩</span>
+                  <span>Deterministic Backward Adaptation Triggered</span>
+                </div>
+                <span class="backward-strategy-pill" id="backward-loop-strategy">Escalated Strategy #1: execution_trace_guard</span>
+              </div>
+              <p class="backward-detail" id="backward-loop-detail">
+                Student code blocked by Gating Judge. The system adaptively shifts instructional scaffolding and routes ↩ backwards: Practice &rarr; Reassess &rarr; Intervene.
+              </p>
+            </div>
+          </div>
+
+          <!-- Session Setup Card (Initial State) -->
+          <div class="interaction-card" id="setup-session-card">
+            <div class="card-top-bar">
+              <span class="card-top-title">Start Learning Concept</span>
+              <span class="badge badge-gold">Targeted Calibration</span>
+            </div>
+            <div class="prompt-content-area">
+              <h2 class="challenge-question-title">What would you like to master today?</h2>
+              <p class="challenge-question-body" style="margin-bottom: 1.5rem;">
+                Select a foundational DSA domain and your familiarity level. Thiran will assess your mental model and adapt its instructional strategy dynamically.
+              </p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;">
+                <div class="form-group">
+                  <label class="form-label" for="topic-select">Topic Domain</label>
+                  <select id="topic-select">
+                    <option value="recursion" selected>Recursion (Base Cases & Call Stacks)</option>
+                    <option value="two_pointers">Two Pointers (Invariants & Window Boundaries)</option>
+                    <option value="binary_search">Binary Search (Midpoint Halving & Edge Guards)</option>
+                    <option value="arrays">Arrays (Indexing & In-place Transformations)</option>
+                    <option value="trees">Trees (Traversal & Subtree Decomposition)</option>
+                    <option value="dynamic_programming">Dynamic Programming (Subproblems & Memoization)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="familiarity-select">Self-Reported Familiarity</label>
+                  <select id="familiarity-select">
+                    <option value="beginner" selected>Beginner (Easy — foundational concepts)</option>
+                    <option value="some_experience">Some Experience (Medium — standard patterns)</option>
+                    <option value="comfortable">Comfortable (Hard — subtle invariants & edge cases)</option>
+                  </select>
+                </div>
+              </div>
+              <button class="btn-primary" id="start-learning-btn" style="padding: 0.85rem 1.75rem; font-size: 0.95rem;">
+                <span>Start Adaptive Session</span> &rarr;
+              </button>
+            </div>
+          </div>
+
+          <!-- Active Interactive Learning Card -->
+          <div class="interaction-card" id="active-interaction-card" style="display: none;">
+            <div class="card-top-bar">
+              <div class="stage-badge-group">
+                <span class="badge badge-teal" id="card-stage-label">Diagnostic Challenge</span>
+              </div>
+              <span class="badge badge-gold" id="card-status-badge">Live Interactive Mode</span>
+            </div>
+
+            <!-- Dynamic Prompt Area: Diagnostic / Intervention / Judge -->
+            <div class="prompt-content-area" id="prompt-content-area">
+              <!-- Rendered via JavaScript -->
+            </div>
+
+            <!-- Code Editor Area -->
+            <div class="code-editor-area">
+              <div class="code-editor-header">
+                <span id="editor-prompt-label">Type your code / reasoning below:</span>
+                <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-faint);">Python 3</span>
+              </div>
+              <textarea
+                class="code-textarea"
+                id="student-code-input"
+                placeholder="def solve(...):&#10;    # Write your solution or explanation here..."
+                spellcheck="false"
+              ></textarea>
+              <div class="editor-actions">
+                <button class="btn-primary" id="submit-code-btn">
+                  <span>Submit Solution</span> &rarr;
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Post-Session Modal / Next Action Card -->
+          <div class="interaction-card" id="post-session-modal" style="display: none; margin-top: 1.5rem;">
+            <div class="card-top-bar">
+              <span class="card-top-title">Session Complete</span>
+              <span class="badge badge-green">Goal Achieved</span>
+            </div>
+            <div class="prompt-content-area" style="text-align: center; padding: 2rem;">
+              <h2 class="serif-title" style="font-size: 1.75rem; color: var(--teal-primary); margin-bottom: 0.5rem;">
+                What would you like to do next?
+              </h2>
+              <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.95rem;">
+                Advance deeper into this concept or explore a new DSA domain.
+              </p>
+              <div style="display: flex; gap: 1rem; justify-content: center;">
+                <button class="btn-secondary" id="post-action-new-topic">
+                  Start a New Topic
+                </button>
+                <button class="btn-primary" id="post-action-depth">
+                  Go More In Depth (Higher Difficulty) &rarr;
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ================================================================
+             VIEW 2: DETERMINISTIC ANALYTICS (REAL SQLITE DATA)
+             ================================================================ -->
+        <section id="analytics-view" style="display: none;">
+          <div class="analytics-header">
+            <h1 class="serif-title" style="font-size: 2.2rem; color: var(--teal-primary); margin-bottom: 0.25rem;">
+              Learner Analytics & Evidence
+            </h1>
+            <p class="analytics-header-sub">
+              100% deterministic SQLite telemetry & verifiable before-vs-after proof. Zero model calls.
+            </p>
+          </div>
+
+          <div id="analytics-content-container">
+            <!-- Rendered dynamically via JavaScript -->
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ====================================================================
+       Branded Login & Register Modal
+       ==================================================================== -->
+  <div class="auth-overlay" id="auth-overlay" style="display: none;">
+    <div class="auth-modal">
+      <div class="auth-brand-center">
+        <img src="/static/images/thiran-emblem.jpg" alt="Thiran Emblem" class="auth-emblem">
+        <h1 class="auth-title">திறன் AI &bull; Thiran</h1>
+        <p class="auth-subtitle">Adaptive Multi-Agent Pedagogical System</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login">Log In</button>
+        <button class="auth-tab" id="tab-register">Create Account</button>
+      </div>
+
+      <div id="auth-error-msg" class="info-banner info-banner-mistake" style="display: none; margin-bottom: 1rem; font-size: 0.85rem;"></div>
+
+      <div class="form-group" id="auth-name-group" style="display: none;">
+        <label class="form-label" for="auth-name-input">Full Name</label>
+        <input type="text" id="auth-name-input" placeholder="e.g. Surya Arasu" autocomplete="name">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="auth-username-input">Unique Username</label>
+        <input type="text" id="auth-username-input" placeholder="e.g. surya" autocomplete="username">
+      </div>
+
+      <button class="btn-primary" id="auth-submit-btn" style="width: 100%; margin-top: 0.5rem; padding: 0.85rem;">
+        Log In & Continue
+      </button>
+
+      <div class="quick-profiles-row">
+        <div class="quick-profiles-label">Existing Learners in SQLite Database:</div>
+        <div class="quick-pills" id="quick-pills-container">
+          <!-- Populated from API -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
