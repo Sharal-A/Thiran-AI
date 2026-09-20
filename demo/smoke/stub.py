@@ -44,7 +44,8 @@ INTERVENTION_V1 = """{
   "teaching_strategy_used": "conceptual_analogy",
   "problem_statement": "What stops countdown(n) when n reaches 0? Add the base case.",
   "buggy_code_or_prompt": "def countdown(n):\\n    countdown(n - 1)",
-  "target_misconception": "base_case"
+  "target_misconception": "base_case",
+  "visualization": "Your Code Trace           | Correct Execution\\n--------------------------+--------------------------\\ndef countdown(n):         | def countdown(n):\\n    countdown(n - 1)      |     if n <= 0: return  <- base case\\n    # n=2 -> call n=1     |     countdown(n - 1)\\n    # n=1 -> call n=0     |\\n    # n=0 -> call n=-1    | # n=1 -> calls n=0\\n    # ... infinite loop   | # n=0 -> returns! halts\\n--------------------------+--------------------------\\n>> RecursionError: max    | >> prints 1, then stops safely\\n   recursion depth        |\\nGap: Missing base case prevents recursion stack from ever returning."
 }"""
 
 GATE_BLOCK = """{
@@ -146,7 +147,8 @@ INTERVENTION_TP1 = """{
   "teaching_strategy_used": "conceptual_analogy",
   "problem_statement": "Initialize left=0 and right=len(nums)-1 in a while loop left < right.",
   "buggy_code_or_prompt": "def pair_sum_sorted(nums, target):\\n    left, right = 0, len(nums) - 1",
-  "target_misconception": "pointer_movement"
+  "target_misconception": "pointer_movement",
+  "visualization": "Your Code Trace           | Correct Execution\\n--------------------------+--------------------------\\nwhile left < right:       | while left < right:\\n    s = nums[l] + nums[r] |     s = nums[l] + nums[r]\\n    # pointers never move |     if s < target: l += 1\\n    # loop never ends     |     else: r -= 1\\n--------------------------+--------------------------\\n>> infinite loop (hangs)  | >> converges in O(N) steps\\nGap: Pointers must move on every iteration to shrink the window."
 }"""
 
 GATE_BLOCK_TP = """{

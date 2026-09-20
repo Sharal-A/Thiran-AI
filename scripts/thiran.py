@@ -139,7 +139,7 @@ def _prompt_intake_if_interactive(args: argparse.Namespace) -> None:
     print(f"  - Built-in offline topics: {BOLD}recursion{RESET}, {BOLD}two_pointers{RESET}, {BOLD}binary_search{RESET}")
     print(f"  - Or type {BOLD}any DSA topic{RESET} (e.g. arrays, dynamic_programming, graphs, trees)\n")
 
-    default_topic = args.topic 
+    default_topic = args.topic or "recursion"
     try:
         choice = input(f"Topic [{default_topic}]: ").strip()
     except (EOFError, KeyboardInterrupt):

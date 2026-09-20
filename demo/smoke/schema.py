@@ -65,6 +65,16 @@ class Intervention(BaseModel):
     problem_statement: str = Field(description="1-sentence Socratic challenge directing learner to fix the flaw")
     buggy_code_or_prompt: str = Field(description="Minimal flawed snippet or scaffold to debug")
     target_misconception: str = Field(description="The specific misconception concept being addressed")
+    visualization: str = Field(
+        default="",
+        description=(
+            "Plain ASCII side-by-side trace (max 8 lines per column, 25 chars wide). "
+            "Left: annotate learner's buggy code with what goes wrong (<- label). "
+            "Right: correct execution trace step by step. "
+            "Bottom: >> result lines showing actual vs expected output. "
+            "Gap: 1-sentence gap description. Pure ASCII only, no Unicode box characters."
+        ),
+    )
 
 
 class ReassessVerdict(BaseModel):

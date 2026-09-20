@@ -362,6 +362,30 @@ def build_flow(call=complete):
             else:
                 print(f"\n\033[1m\033[33m=== VERDICT: BLOCK (Score: {verdict.score}/4) ===\033[0m")
                 print(f"  {verdict.feedback}\n")
+                viz = (ctx.latest("intervention") or {}).get("visualization", "").strip()
+                if viz:
+                    viz_clean = (
+                        viz.replace("─", "-")
+                        .replace("│", "|")
+                        .replace("┌", "+")
+                        .replace("┐", "+")
+                        .replace("└", "+")
+                        .replace("┘", "+")
+                        .replace("├", "+")
+                        .replace("┤", "+")
+                        .replace("┬", "+")
+                        .replace("┴", "+")
+                        .replace("┼", "+")
+                        .replace("═", "=")
+                        .replace("║", "|")
+                    )
+                    print(f"\033[2m{'=' * 54}\033[0m")
+                    print("\033[1m  WHAT HAPPENED vs. WHAT SHOULD HAPPEN\033[0m")
+                    print(f"\033[2m{'=' * 54}\033[0m")
+                    for line in viz_clean.splitlines():
+                        print(f"  {line}")
+                    print(f"\033[2m{'=' * 54}\033[0m\n")
+
 
         if verdict.status == "PASS":
             # State Update (pure deterministic code)
