@@ -16,3 +16,9 @@ http://127.0.0.1:8000
 python scripts/thiran.py run --interactive
 ```
 
+TEAM ALGORA 
+Isheetha 
+Sridhar 
+Sharal Arasu 
+Praveena R
+Nivedha 
